@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 
-/************************************** 
-    @title Vending Machine Silmuator 
-    @author Siddhant Shah 
-    @date July 01 2022 
-***************************************/ 
+/**************************************
+    @title Vending Machine Silmuator
+    @author Siddhant Shah
+    @date July 01 2022
+***************************************/
 
 pragma solidity ^0.8.12;
 
@@ -48,6 +48,7 @@ contract LuckyLoto {
         address organizer;                  // address or LOTTO organizer
         LottoType lottoType;                // tyype of lotto
         LottoStatus lottoStatus;            // status of lotto
+        bool refunded;
     }
 
     LottoEvent lotto;                               // lotto object
@@ -77,7 +78,6 @@ contract LuckyLoto {
         _;
     }
 
-    // MODIFIER to make sure Lotto Exists
     /* @title MODIFIER to ensure that gambler exists */
     modifier isLotto(uint256 _lottoID) {
         require(lottoMapping[_lottoID].organizer != address(0), "No such lotto exists");
@@ -111,13 +111,25 @@ contract LuckyLoto {
 
     /* @title MODIFIER to ensure lotto has not been concluded */
     modifier isNotConcluded(uint256 _lottoID) {
-        require(lottoMapping[_lottoID].lottoStatus != LottoStatus.CONCLUDED, "Lotto Has been Concluded.");
+        require(lottoMapping[_lottoID].lottoStatus != LottoStatus.CONCLUDED, "Lotto has been Concluded.");
+        _;
+    }
+
+    /* @title MODIFIER to ensure lotto has not been concluded */
+    modifier isRefunded(uint256 _lottoID) {
+        require(!lottoMapping[_lottoID].refunded, "Lotto has already been Refunded.");
+        _;
+    }
+
+    /* @title MODIFIER to ensure lotto has not been concluded */
+    modifier isSuspended(uint256 _lottoID) {
+        require(lottoMapping[_lottoID].lottoStatus == LottoStatus.SUSPENDED, string.concat("Lotto is not Suspended. Current Status", Strings.toString(uint(lottoMapping[_lottoID].lottoStatus))));
         _;
     }
 
     /* @title MODIFIER to ensure lotto has not been suspended */
     modifier isNotSuspended(uint256 _lottoID) {
-        require(lottoMapping[_lottoID].lottoStatus != LottoStatus.SUSPENDED, "Lotto Has been Suspended.");
+        require(lottoMapping[_lottoID].lottoStatus != LottoStatus.SUSPENDED, "Lotto has been Suspended.");
         _;
     }
 
@@ -147,8 +159,13 @@ contract LuckyLoto {
             if (lottoMapping[_lottoID].drawTime <= block.timestamp) {
                 if (lottoMapping[_lottoID].minParticipants > lottoMapping[_lottoID].participants.length) {
                     status = LottoStatus.SUSPENDED;
+                    lottoMapping[_lottoID].lottoStatus = LottoStatus.SUSPENDED;
+                    emit LottoStatusUpdated(_lottoID, lottoMapping[_lottoID].lottoStatus);
+                    refundSuspendedLottery(_lottoID);
                 } else {
                     status = LottoStatus.TIMEUP;
+                    lottoMapping[_lottoID].lottoStatus = LottoStatus.TIMEUP;
+                    emit LottoStatusUpdated(_lottoID, lottoMapping[_lottoID].lottoStatus);
                 }
             }
         }
@@ -157,6 +174,19 @@ contract LuckyLoto {
             lottoMapping[_lottoID].lottoStatus = status;
             emit LottoStatusUpdated(_lottoID, lottoMapping[_lottoID].lottoStatus);
         }
+    }
+
+    function refundSuspendedLottery(uint256 _lottoID) internal isRefunded(_lottoID) isSuspended(_lottoID) {
+        for (uint256 i = 0; i< lottoMapping[_lottoID].participants.length; i++){
+            require(lottoMapping[_lottoID].balance >= lottoMapping[_lottoID].ticketPrice, "Not Enough Funds to refund all participants");
+            gamblerMapping[lottoMapping[_lottoID].participants[i]].balance += lottoMapping[_lottoID].ticketPrice;
+            lottoMapping[_lottoID].balance += lottoMapping[_lottoID].ticketPrice;
+        }
+
+        require(address(this).balance >= lottoMapping[_lottoID].lottoPot, "Unable to refund to Organizer");
+        gamblerMapping[lottoMapping[_lottoID].organizer].balance += lottoMapping[_lottoID].lottoPot;
+
+        lottoMapping[_lottoID].refunded = true;
     }
 
     /**
@@ -178,7 +208,7 @@ contract LuckyLoto {
     }
 
     /**
-        * @dev UTILITY FUNCTION togenerate random numberdepending on input numbers
+        * @dev UTILITY FUNCTION to generate random number depending on input numbers
         * @param _randomNumber uint256: random number
         * @param _position uint256: Winner number(1, 2, or 3)
         * @return uint256
@@ -230,6 +260,7 @@ contract LuckyLoto {
 
         addGambler(); // adding gambler(organizer) if doesnot exists
 
+        // create a LOTTOEVENT
         LottoEvent storage _lotto = lottoMapping[lottoID.current()];
         _lotto.organizer = msg.sender;
         _lotto.lottoPot = msg.value;
@@ -241,7 +272,11 @@ contract LuckyLoto {
         _lotto.activeTime = block.timestamp;
         _lotto.drawTime = _drawTime;
 
+        // adding gambler to the organizers array
         organizersArray.push(msg.sender);
+
+        // adding lotto to the gambler's array which he organized
+        gamblerMapping[msg.sender].lottoAsOrganizer.push(lottoID.current());
 
         emit LottoCreated(lottoID.current(), msg.value);
     }
@@ -254,12 +289,21 @@ contract LuckyLoto {
         checkLottoStatus(_lottoID);
         if (lottoMapping[_lottoID].lottoStatus == LottoStatus.ACTIVE) {
             require(msg.value >= lottoMapping[_lottoID].ticketPrice, "Please sent ethers that matches Ticket Price");
+
+            // adding gambler to blockchain if not exists
             addGambler();
+
+            // adding gambler to the lotto
             lottoMapping[_lottoID].participants.push(msg.sender);
             lottoMapping[_lottoID].balance += msg.value;
             participantsArray.push(msg.sender);
+
+            // checking and updating lotto's status
             checkLottoStatus(_lottoID);
-            checkLottoStatus(_lottoID);
+
+            // adding lotto to the gambler's state to array which has last of lotto he took part as participant
+            gamblerMapping[msg.sender].lottoAsParticipants.push(_lottoID);
+
             emit LottoTicketSold(_lottoID, msg.sender);
         } else {
             emit CannotParticipate(_lottoID, lottoMapping[_lottoID].lottoStatus);
@@ -279,12 +323,14 @@ contract LuckyLoto {
             for (uint8 i=1; i<=3; i++) {
                 // getting winning participant's array index
                 uint256 _winnerIndex = generateRandomNumber(_randomNumber, i) % lottoMapping[_lottoID].participants.length;
-                // getting winning participant's array
+                // getting winning participant's address
                 address _winnerAddress = lottoMapping[_lottoID].participants[_winnerIndex];
-                // updating LOTTO object with winners ID
+                // updating LOTTO object with winners address
                 lottoMapping[_lottoID].winners.push(_winnerAddress);
+
                 // updating winner's balance and reducing LOTTO balance
-                gamblerMapping[_winnerAddress].balance += prizeCalculator(_lottoID, i);
+                uint256 prizeMoney = prizeCalculator(_lottoID, i);
+                gamblerMapping[_winnerAddress].balance += prizeMoney;
             }
 
             // transfering lotto's balance to organizer
@@ -307,7 +353,7 @@ contract LuckyLoto {
     */
     function withdraw(uint256 _amount) external {
         require(gamblerMapping[msg.sender].balance >= _amount, "Don\'t have sufficient balance");
-        gamblerMapping[msg.sender].balance.sub(_amount);
+        gamblerMapping[msg.sender].balance -= _amount;
         (bool _success, ) = payable(msg.sender).call{ value: _amount }("");      // transfering funds
 
         //  if transfer succeed
@@ -334,19 +380,4 @@ contract LuckyLoto {
     function getGambler() view external returns(Gambler memory) {
         return gamblerMapping[msg.sender];
     }
-
-    // // FUNCTION to get  list of all participants
-    // function getLottoParticipants(uint256 _lottoID) view external returns(address[] memory) {
-    //     return lottoMapping[_lottoID].participants;
-    // }
-
-    // // FUNCTION to get statusof lotto
-    // function getLottoStatus(uint256 _lottoID) view external returns(uint256) {
-    //     return uint256(lottoMapping[_lottoID].lottoStatus);
-    // }
-
-    // // FUNCTION to get  contract balance
-    // function getContractBalance() view external returns(uint256) {
-    //     return address(this).balance;
-    // }
 }
