@@ -1,0 +1,3 @@
+export const ContractAddress = "0xAeC4D778F34f912dD25cbaf9A215a940F5e10ef7";
+export const Network = "development";
+export const DeployingAddress = "0x5c0d77DF5b04c66D867D575C4514d0235cE9bC07";
