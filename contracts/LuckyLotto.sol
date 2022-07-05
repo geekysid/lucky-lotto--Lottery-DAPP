@@ -12,7 +12,7 @@ import "@openzeppelin/contracts/utils/Counters.sol";        // openzepplin libra
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";   // openzepplin library to prevent overflow
 import "@openzeppelin/contracts/utils/Strings.sol";         // uerd for convertind int to string
 
-contract LuckyLoto {
+contract LuckyLotto {
 
     using Counters for Counters.Counter;
     using SafeMath for uint256;
